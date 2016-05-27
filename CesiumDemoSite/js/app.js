@@ -1,80 +1,126 @@
-$(document).ready(function(){
-      var viewer;
-      var button = $('#startDemo');
-      var lat = $('#lat');
-      var lon = $('#lon');
+/*
+Programmer: Jeff Janda
+Date: 5/27/16
+
+This module allows for the creation of a cesium viewer. This app is not as independent as it should be
+and functions will require the form used in the deployment to work. At this time this will allow
+a Cesium viewer to appear on the page, allow a user to select a lat and lon from the viewer and
+put the values into the form and then run a demonstration. Code can accept a czml variable
+but at this point the czml is hard coded into the code. Thanks for giving me a chance to work
+on this it was fun!
+
+*/
 
 
-      viewer = new Cesium.Viewer('cesiumContainer');
-      button.on('click', init);
-      var scene = viewer.scene;
 
+angular.module('ngCesium', [])
+    //define the cesium directive
+    .directive('cesiumDirective', function($interval, cesiumService){
+    // return the directive definition object
+    return {
+      restrict: "EA",
+      controllerAs: "cesiumCtrl",
+      priority: 500,
+      bindToController: true,
+      controller: function($scope, $element){
 
+      },
+      /*
+      All functionality was programmed into the Link function. Most of this should probably be
+      loaded into a service.
+      */
+      link: function(scope, element, attr, ctrl){
 
-    var entity = viewer.entities.add({
+        // Creates a viewer and sets optional properities
+        ctrl.cesiumViewer = new Cesium.Viewer(element[0], {
+              baseLayerPicker: false,
+              fullscreenButton: false,
+              homeButton: false,
+              sceneModePicker: false,
+              selectionIndicator: false,
+              timeline: true,
+              animation: true,
+              geocoder: false
+            });
+
+        // this variable allows the lat and lon to be displayed on the viewer
+        var entity = ctrl.cesiumViewer.entities.add({
         label : {
             show : false
         }
-    });
- // Event handler code for displaying the cartographic degrees and selecting them.
-    var cartesian;
-    var cartographic;
-    var longitudeString;
-    var latitudeString;
-    var demoStarted=false; // checks if the demo is started
+        });
+
+
+          // Toggles the form open and closed
+         scope.toggleForm = function() {
+           element.toggleClass('withForm'); // withForm class styles the viewer to be smaller
+           if(scope.showForm) {
+               scope.showForm = false;
+
+
+            } else {
+               scope.showForm = true;
+            }
+          }
+
+        // These variables are part of the picker code below.
+        //Note: longitudeString and latitudeString used in click event function below.
+        var cartesian;
+        var cartographic;
+        var longitudeString; // value of the longitude displayed in the viewer
+        var latitudeString;  // value of the latitude displayed in the viewer
+
+        var scene = ctrl.cesiumViewer.scene;
+
+        var cam=ctrl.cesiumViewer.camera;
+
+        var demoStarted=false; // checks if the demo is started and used to turn on and off the lat/lon display
+
+
+
+
     // Mouse over the globe to see the cartographic position
+    // This function is taken from the code examples in the Cesium Sandcastle under Picker and adapted for our app
     handlerMove = new Cesium.ScreenSpaceEventHandler(scene.canvas);
     handlerMove.setInputAction(function(movement) {
-        cartesian = viewer.camera.pickEllipsoid(movement.endPosition, scene.globe.ellipsoid);
+        cartesian = cam.pickEllipsoid(movement.endPosition, scene.globe.ellipsoid);
+
         if (cartesian && !demoStarted) {
             cartographic = Cesium.Cartographic.fromCartesian(cartesian);
             longitudeString = Cesium.Math.toDegrees(cartographic.longitude).toFixed(2);
             latitudeString = Cesium.Math.toDegrees(cartographic.latitude).toFixed(2);
 
-            entity.position = cartesian;
-            entity.label.show = true;
-            entity.label.text = '(' + longitudeString + ', ' + latitudeString + ')';
+        entity.position = cartesian;
+        entity.label.show = true;
+        entity.label.text = '(' + longitudeString + ', ' + latitudeString + ')';
 
         } else {
             entity.label.show = false;
         }
 
-    }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
--
+        }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
 
-   // click globe to select values
-   viewer.canvas.addEventListener('click', function(){
-      if (cartesian && !demoStarted) {
-
-        console.log(longitudeString + ', ' + latitudeString);
-
-        // below code is for demo purposes only. Need to wire up form to this event
-         lat.empty();
-         lon.empty();
-         lat.append("<p>"+latitudeString+"</p>");
-         lon.append("<p>"+longitudeString+"</p>");
-
-        //---> insert wire up code here for lat and long form controls
-
-      } else {
-
-        console.log('Globe was not picked');
-
-      }
-
-    }, false);
+ // End picker function.
 
 
-//<------------------------end of events code ------------------------->
+     // Click event function captures the latitude and longitude displayed on the viewer and
+     // passes the values to the latitude and longitude on the form.
+        ctrl.cesiumViewer.canvas.addEventListener('click', function(){
+           cesiumService.user.latlong.lon = parseFloat(longitudeString);
+           cesiumService.user.latlong.lat = parseFloat(latitudeString);
+          console.log(cesiumService.user);
+          scope.$apply();
+              });
 
 
+        // START DEMO Code Below--------------------------------------------------->
+        // The init function will take in a CZML and start it running in the viewer
+        scope.init = function(){
 
 
-      //Function Start
-      function init(){
-        console.log('Here')
-       // viewer = new Cesium.Viewer('cesiumContainer');
-          // This is the formatted websar data. All data is hardcoded in at this time. Used in description for CZML
+        // START CZML CODE----------------------------------------------------------------->
+ // This is the formatted websar data. All data is hardcoded in at this time. Used in description for CZML
+ // This displays when any time point is clicked in the viewer
       var websar = "<p>CONDITIONS AT MAP CENTER 35-34.0N 073-46.0N VALID ON 2412900Z NOV2015</P>" +
       "<TABLE style=\"font-size:7pt\">" +
 
@@ -150,16 +196,26 @@ $(document).ready(function(){
 
       "<TR> <TD>SURVIVAL TIME WITHOUT SUIT</TD> <TD></TD> <TD></TD> <TD style=\"text-align:right\">13</TD> <TD></TD>" +
       "<TD>HOURS</TD> <TD></TD> <TD></TD> <TD></TD> <TD>(HYCOM_GLOBAL)</TD> </TR> </TABLE>";
-        var czml = [
+
+      //Function Start
+
+/*
+This CZML controls a 24 hour drift cycle. We used a static start time using the availability property
+and used the interval property of each point to control color changing. This also draws a line that
+will connect the points as they appear on the map. We gave the line a 10 second lead time and a trail time
+of 24 hours.
+*/
+
+              var czml = [
                 {
                   "id" : "document",
                   "name" : "CZML Point",
                   "version" : "1.0"
                 },
+                // Polyline code below.
                 {
                   "id" : "path",
                   "name" : "Object Float Path",
-
                   "availability" : "2016-04-20T00:00:00Z/2016-04-21T00:00:00Z",
                   "path" : {
                     "material" : {
@@ -206,6 +262,9 @@ $(document).ready(function(){
                     ]
                   }
                 },
+
+                // Points code below will comment the first few points but all others
+                // will be the same accept for the time interval.
                 {
                   "id" : "point 1",
                   "name": "2016-04-20T00:00:00Z",
@@ -218,7 +277,7 @@ $(document).ready(function(){
                   },
                   "point": {
                     "color": {
-                      "rgba": [255,0, 0, 255]
+                      "rgba": [255,0, 0, 255] // red
                     },
                     "outlineColor": {
                       "rgba": [255,0, 200, 255]
@@ -242,11 +301,11 @@ $(document).ready(function(){
                     "color": [
                     {
                       "interval": "2016-04-20T01:00:00Z/2016-04-20T02:00:00Z",
-                      "rgba": [0,0, 255, 255]
+                      "rgba": [0,0, 255, 255] // blue
                     },
                     {
                       "interval" : "2016-04-20T02:00:00Z/9999-12-31T24:00:00Z",
-                        "rgba": [128, 128, 128, 255]
+                        "rgba": [128, 128, 128, 255] // gray
                     }
                     ],
                     "outlineColor": {
@@ -873,14 +932,36 @@ $(document).ready(function(){
                   }
                 }
                 ]; // end czml
+// END CZML CODE-------------------------------------------------------------------->
 
-        var dataSource = Cesium.CzmlDataSource.load(czml);
-        viewer.dataSources.add(dataSource);
-        var frame= new Cesium.HeadingPitchRange(0.05,-.30, 200500);
+        var dataSource = Cesium.CzmlDataSource.load(czml); // creates the datasource
+        ctrl.cesiumViewer.dataSources.add(dataSource); // adds datasource to the viewer
+        var frame= new Cesium.HeadingPitchRange(0.05,-.30, 200500); // orients the camera for the zoomTo
         demoStarted=true; // This removes the cartographic degree label from the viewer when the demo starts.
-        viewer.zoomTo(dataSource, frame);
-      }
+        ctrl.cesiumViewer.zoomTo(dataSource, frame); // zooms to the datasource with the camera oriented
+        element.toggleClass('withForm'); // makes the viewer full size
+        scope.showForm = false; // closes the form
+        };// end init function
+            }// end link function
+          };
 
+
+        })
+
+   // this displays default values into the form
+    .factory('cesiumService', function(){
+         var service = {};
+         service.user = {
+           latlong: {
+             lon: 10,
+             lat: 10
+           }
+
+         };
+
+        return service;
+    })
+
+  .controller('cesiumCtrl', function($scope){
 
 });
-
